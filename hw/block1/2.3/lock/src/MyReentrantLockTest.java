@@ -1,6 +1,5 @@
 import org.junit.jupiter.api.Test;
 
-import javax.swing.plaf.SpinnerUI;
 import java.lang.reflect.*;
 
 import java.util.concurrent.CountDownLatch;
