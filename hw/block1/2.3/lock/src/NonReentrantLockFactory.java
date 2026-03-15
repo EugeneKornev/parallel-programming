@@ -1,0 +1,3 @@
+interface NonReentrantLockFactory {
+    NonReentrantLock create();
+}
