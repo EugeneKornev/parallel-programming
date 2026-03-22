@@ -13,8 +13,8 @@ class MyExecutorServiceWithShutdown {
     }
 
     private State state;
-    private Set<MyFuture<?>> runningTasks = new HashSet<>();
-    private List<Callable<?>> waitingTasks = new LinkedList<>();
+    private final Set<MyFuture<?>> runningTasks = new HashSet<>();
+    private final List<Callable<?>> waitingTasks = new LinkedList<>();
 
 
     public MyExecutorServiceWithShutdown(MyExecutorService service) {
@@ -32,46 +32,36 @@ class MyExecutorServiceWithShutdown {
             throw new IllegalArgumentException("Executor already shutdown");
         }
         waitingTasks.add(task);
-        MyFuture<T> future;
-        future = service.submit(() -> {
+        MyFuture<T>[] temp = new MyFuture[1];
+        MyFuture<T> future = service.submit(() -> {
             try {
                 return task.call();
             } finally {
-                System.out.println("finished");
+                synchronized (this) {
+                    runningTasks.remove(temp[0]);
+                }
                 finishTasks();
-                notifyAll();
             }
         });
         waitingTasks.remove(task);
+        temp[0] = future;
         runningTasks.add(future);
-        System.out.println("size here = " + runningTasks.size());
-//        System.out.println(runningTasks.toString());
         return future;
     }
 
     private synchronized void finishTasks() {
-//        System.out.println("here");
-//        System.out.println(runningTasks.size() + " <- size");
-//        System.out.println(runningTasks.stream().filter(MyFuture::isDone).count() + "<- count");
         runningTasks.removeIf(MyFuture::isDone);
-//        System.out.println(runningTasks.stream().filter(MyFuture::isDone).count() + "<- count 2");
-//        System.out.println(state);
-//        System.out.println(runningTasks.size() + " size before if");
         if (state == State.UnderShutdown && runningTasks.isEmpty()) {
-//            System.out.println("under if");
             state = State.Terminated;
-//            System.out.println(state);
-            notifyAll();
+            notify();
         }
-        System.out.println(state);
     }
 
     /**
      * Initiates an orderly shutdown in which previously submitted tasks are executed, but no new tasks will be accepted.
      * Invocation has no additional effect if already shut down.
-     *
+     * <p>
      * This method does not wait for previously submitted tasks to complete execution. Use `awaitTermination` to do that.
-     *
      */
     public synchronized void shutdown() {
         if (state == State.AcceptingTasks) {
@@ -79,16 +69,15 @@ class MyExecutorServiceWithShutdown {
 
             if (runningTasks.isEmpty()) {
                 state = State.Terminated;
-                notifyAll();
+                notify();
             }
         }
     }
 
     /**
      * Returns true if this executor has been shut down.
-     *
+     * <p>
      * True does not mean all submitted tasks has been completed. Use `isTerminated` to check that.
-     *
      */
     public synchronized boolean isShutdown() {
         return state == State.UnderShutdown || state == State.Terminated;
@@ -97,7 +86,6 @@ class MyExecutorServiceWithShutdown {
     /**
      * Returns true if all tasks have completed following shut down.
      * Note that isTerminated is never true unless either shutdown or shutdownNow was called first.
-     *
      */
     public synchronized boolean isTerminated() {
         return state == State.Terminated;
@@ -106,10 +94,9 @@ class MyExecutorServiceWithShutdown {
     /**
      * Forbids submission of new tasks (equivalent to `shutdown`), halts the processing of waiting tasks and
      * returns a list of the tasks that were awaiting execution.
-     *
+     * <p>
      * This method does not wait for actively executing tasks to terminate. Any already executing task **will not** be returned
      * by this method. Use `awaitTermination` to ensure all tasks are finished.
-     *
      */
     public synchronized List<Callable<?>> shutdownNow() {
         shutdown();
@@ -117,25 +104,16 @@ class MyExecutorServiceWithShutdown {
         waitingTasks.clear();
         if (runningTasks.isEmpty()) {
             state = State.Terminated;
-            notifyAll();
+            notify();
         }
         return notReady;
     }
 
     /**
      * Blocks until all tasks have completed execution after a shutdown request.
-     *
      */
     public synchronized boolean awaitTermination() {
         while (state != State.Terminated) {
-//            finishTasks();
-            runningTasks.removeIf(MyFuture::isDone);
-
-            if (state == State.UnderShutdown && runningTasks.isEmpty()) {
-                state = State.Terminated;
-                return true;
-            }
-
             try {
                 wait();
             } catch (InterruptedException e) {
