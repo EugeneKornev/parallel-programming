@@ -50,7 +50,7 @@ class MyReentrantLock {
             try {
                 Thread.sleep(dealy);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
             }
             dealy = Math.min(dealy * 2, 512);
         }
