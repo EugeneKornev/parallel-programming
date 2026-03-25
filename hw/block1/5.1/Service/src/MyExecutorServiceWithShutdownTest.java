@@ -2,6 +2,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.*;
 
 public class MyExecutorServiceWithShutdownTest {
@@ -136,5 +137,42 @@ public class MyExecutorServiceWithShutdownTest {
         });
         latch.await();
         assertTrue(service.isShutdown());
+    }
+
+    @Test
+    void testNonEmptyShutdownNow(){
+        List<Callable<?>> result;
+        MyExecutorServiceWithShutdown s;
+        while (true) {
+            s = new MyExecutorServiceWithShutdown(new MyExecutorServiceImpl(Executors.newFixedThreadPool(16)));
+            for (int i = 0; i < 100; i++) {
+                MyExecutorServiceWithShutdown finalS = s;
+                s.submit(() -> {
+                   for (int j = 0; j < 100; j++) {
+                       finalS.submit(() -> null);
+                   }
+                   return null;
+                });
+            }
+            result = s.shutdownNow();
+            if (!result.isEmpty()) {
+                break;
+            }
+        }
+        assertFalse(result.isEmpty());
+    }
+
+
+    @Test
+    void testAwaitInOtherThread() throws InterruptedException {
+        MyFuture<?> f2 = service.submit(() -> {
+            service.shutdown();
+            service.awaitTermination();
+            return null;
+        });
+        System.out.println(f2);
+        Thread.sleep(100);
+        System.out.println(service.isShutdown());
+        service.awaitTermination();
     }
 }

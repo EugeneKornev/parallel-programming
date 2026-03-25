@@ -6,7 +6,6 @@ class MyExecutorServiceWithShutdown {
     private final MyExecutorService service;
 
     private enum State {
-        Created,
         AcceptingTasks,
         UnderShutdown,
         Terminated
@@ -14,7 +13,7 @@ class MyExecutorServiceWithShutdown {
 
     private State state;
     private final Set<MyFuture<?>> runningTasks = new HashSet<>();
-    private final List<Callable<?>> waitingTasks = new LinkedList<>();
+    private final Set<Callable<?>> waitingTasks = new HashSet<>();
 
 
     public MyExecutorServiceWithShutdown(MyExecutorService service) {
@@ -35,25 +34,26 @@ class MyExecutorServiceWithShutdown {
         MyFuture<T>[] temp = new MyFuture[1];
         MyFuture<T> future = service.submit(() -> {
             try {
+                synchronized (this) {
+                    waitingTasks.remove(task);
+                    runningTasks.add(temp[0]);
+                }
                 return task.call();
             } finally {
                 synchronized (this) {
                     runningTasks.remove(temp[0]);
+                    tryFinishTasks();
                 }
-                finishTasks();
             }
         });
-        waitingTasks.remove(task);
         temp[0] = future;
-        runningTasks.add(future);
         return future;
     }
 
-    private synchronized void finishTasks() {
-        runningTasks.removeIf(MyFuture::isDone);
+    private synchronized void tryFinishTasks() {
         if (state == State.UnderShutdown && runningTasks.isEmpty()) {
             state = State.Terminated;
-            notify();
+            notifyAll();
         }
     }
 
@@ -66,12 +66,8 @@ class MyExecutorServiceWithShutdown {
     public synchronized void shutdown() {
         if (state == State.AcceptingTasks) {
             state = State.UnderShutdown;
-
-            if (runningTasks.isEmpty()) {
-                state = State.Terminated;
-                notify();
-            }
         }
+        tryFinishTasks();
     }
 
     /**
@@ -102,10 +98,6 @@ class MyExecutorServiceWithShutdown {
         shutdown();
         List<Callable<?>> notReady = new ArrayList<>(waitingTasks);
         waitingTasks.clear();
-        if (runningTasks.isEmpty()) {
-            state = State.Terminated;
-            notify();
-        }
         return notReady;
     }
 
