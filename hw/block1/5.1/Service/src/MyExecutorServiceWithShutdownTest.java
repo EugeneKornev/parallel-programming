@@ -1,6 +1,7 @@
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
@@ -170,9 +171,12 @@ public class MyExecutorServiceWithShutdownTest {
             service.awaitTermination();
             return null;
         });
-        System.out.println(f2);
         Thread.sleep(100);
-        System.out.println(service.isShutdown());
-        service.awaitTermination();
+        long N = 500;
+        assertThrows(AssertionError.class, () -> {
+            assertTimeoutPreemptively(Duration.ofMillis(N), () -> {
+                service.awaitTermination();
+            });
+        });
     }
 }
