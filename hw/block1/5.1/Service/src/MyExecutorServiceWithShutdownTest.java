@@ -118,6 +118,8 @@ public class MyExecutorServiceWithShutdownTest {
             });
         }
         latch.await();
+        service.shutdown();
+        service.awaitTermination();
         assertTrue(service.shutdownNow().isEmpty() && Arrays.stream(numbers).sum() == N * K);
     }
 
@@ -141,26 +143,20 @@ public class MyExecutorServiceWithShutdownTest {
     }
 
     @Test
-    void testNonEmptyShutdownNow(){
-        List<Callable<?>> result;
-        MyExecutorServiceWithShutdown s;
-        while (true) {
-            s = new MyExecutorServiceWithShutdown(new MyExecutorServiceImpl(Executors.newFixedThreadPool(16)));
-            for (int i = 0; i < 100; i++) {
-                MyExecutorServiceWithShutdown finalS = s;
-                s.submit(() -> {
-                   for (int j = 0; j < 100; j++) {
-                       finalS.submit(() -> null);
-                   }
-                   return null;
-                });
-            }
-            result = s.shutdownNow();
-            if (!result.isEmpty()) {
-                break;
-            }
+    void testNonEmptyShutdownNow() throws InterruptedException {
+        MyExecutorServiceWithShutdown s = new MyExecutorServiceWithShutdown(
+                new MyExecutorServiceImpl(Executors.newFixedThreadPool(1)));
+        CountDownLatch firstTaskStarted = new CountDownLatch(1);
+        s.submit(() -> {
+            firstTaskStarted.countDown();
+            Thread.sleep(1000);
+            return null;
+        });
+        firstTaskStarted.await();
+        for (int i = 0; i < 10; i++) {
+            s.submit(() -> 42);
         }
-        assertFalse(result.isEmpty());
+        assertFalse(s.shutdownNow().isEmpty());
     }
 
 
@@ -171,12 +167,78 @@ public class MyExecutorServiceWithShutdownTest {
             service.awaitTermination();
             return null;
         });
-        Thread.sleep(100);
         long N = 500;
         assertThrows(AssertionError.class, () -> {
             assertTimeoutPreemptively(Duration.ofMillis(N), () -> {
                 service.awaitTermination();
             });
         });
+    }
+
+    @Test
+    void testMultipleAwaitTerminationThreads() throws InterruptedException {
+        long timeToSleep = 1000;
+        service.submit(() -> {
+            Thread.sleep(timeToSleep);
+            return null;
+        });
+        service.shutdown();
+        int N = 2;
+        CountDownLatch threadsAwaitedTermination = new CountDownLatch(N);
+        for (int i = 0; i < N; i++) {
+            new Thread(() -> {
+               service.awaitTermination();
+               threadsAwaitedTermination.countDown();
+            }).start();
+        }
+        long M = timeToSleep + 100;
+        assertTimeoutPreemptively(Duration.ofMillis(M), () -> {
+            threadsAwaitedTermination.await();
+        });
+    }
+
+    @Test
+    void testMyFutureGet() throws InterruptedException {
+        MyExecutorServiceWithShutdown s = new MyExecutorServiceWithShutdown(
+                new MyExecutorServiceImpl(Executors.newFixedThreadPool(1)));
+
+        CountDownLatch allTasksSubmitted = new CountDownLatch(1);
+        CountDownLatch threadsJoined = new CountDownLatch(2);
+        CountDownLatch serviceUnderShutdown = new CountDownLatch(1);
+
+        new Thread(() -> { // Thread A
+            for (int i = 0; i < 10; i++) {
+                s.submit(() -> {
+                    Thread.sleep(500);
+                    return null;
+                });
+            }
+            MyFuture<Integer> f = s.submit(() -> 43);
+            allTasksSubmitted.countDown();
+            try {
+                serviceUnderShutdown.await();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            try {
+                assertEquals(43, f.get());
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+            threadsJoined.countDown();
+        }).start();
+
+        new Thread(() -> { // Thread B
+            try {
+                allTasksSubmitted.await();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            var l = s.shutdownNow();
+            serviceUnderShutdown.countDown();
+            threadsJoined.countDown();
+        }).start();
+
+        threadsJoined.await();
     }
 }

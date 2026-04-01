@@ -51,7 +51,7 @@ class MyExecutorServiceWithShutdown {
     }
 
     private synchronized void tryFinishTasks() {
-        if (state == State.UnderShutdown && runningTasks.isEmpty()) {
+        if (state == State.UnderShutdown && runningTasks.isEmpty() && waitingTasks.isEmpty()) {
             state = State.Terminated;
             notifyAll();
         }
