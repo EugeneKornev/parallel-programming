@@ -223,7 +223,11 @@ public class MyExecutorServiceWithShutdownTest {
             try {
                 assertEquals(43, f.get());
             } catch (ExecutionException e) {
-                throw new RuntimeException(e);
+                if (e.getCause() instanceof CancellationException) {
+                    System.out.println("Task was successfully canceled!");
+                } else {
+                    throw new RuntimeException(e);
+                }
             }
             threadsJoined.countDown();
         }).start();

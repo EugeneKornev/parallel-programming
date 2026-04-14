@@ -1,5 +1,6 @@
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 
 class MyExecutorServiceWithShutdown {
 
@@ -26,7 +27,7 @@ class MyExecutorServiceWithShutdown {
      *
      * @throws IllegalArgumentException if user tries to submit task after `shutdown`.
      */
-    public synchronized <T> MyFuture<T> submit(Callable<T> task) throws IllegalArgumentException {
+    public synchronized <T> MyFuture<T> submit(Callable<T> task) throws IllegalArgumentException, CancellationException {
         if (state == State.UnderShutdown || state == State.Terminated) {
             throw new IllegalArgumentException("Executor already shutdown");
         }
@@ -35,6 +36,9 @@ class MyExecutorServiceWithShutdown {
         MyFuture<T> future = service.submit(() -> {
             try {
                 synchronized (this) {
+                    if (!waitingTasks.contains(task)) {
+                        throw new CancellationException();
+                    }
                     waitingTasks.remove(task);
                     runningTasks.add(temp[0]);
                 }
